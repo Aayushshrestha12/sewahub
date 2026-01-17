@@ -1,0 +1,245 @@
+/* General Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(to bottom right, #e6f2ff, #f9fcff);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px; /* padding for small screens */
+}
+
+/* Container */
+.container {
+  width: 100%;
+  max-width: 450px;
+}
+
+/* Form Wrapper */
+.form-wrapper {
+  background: #fff;
+  border-radius: 16px;
+  padding: 30px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+}
+
+/* Header */
+.header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.logo {
+  font-size: 28px;
+  font-weight: bold;
+  color: #007bff;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: #555;
+}
+
+/* Card Title */
+.card-title {
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  color: #1a1a1a;
+}
+
+.card-description {
+  text-align: center;
+  font-size: 14px;
+  color: #777;
+  margin-bottom: 20px;
+}
+
+/* Form Groups */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+}
+
+.form-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.input-wrapper {
+  position: relative;
+  flex: 1;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  font-size: 14px;
+  outline: none;
+  transition: border 0.3s;
+}
+
+.form-input:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 4px rgba(0, 123, 255, 0.3);
+}
+
+/* Radio buttons */
+.radio-group {
+  display: flex;
+  gap: 15px;
+  margin-top: 6px;
+  font-size: 14px;
+  color: #333;
+  flex-wrap: wrap; /* stack on smaller screens */
+}
+
+/* Checkbox */
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.checkbox-label a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.checkbox-label a:hover {
+  text-decoration: underline;
+}
+
+/* Button */
+.btn {
+  width: 100%;
+  padding: 12px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.btn:hover {
+  background: #0056b3;
+}
+
+/* Footer */
+.card-footer {
+  text-align: center;
+  margin-top: 15px;
+}
+
+.footer-text a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.footer-text a:hover {
+  text-decoration: underline;
+}
+
+/* ---------------- */
+/* RESPONSIVE DESIGN */
+/* ---------------- */
+
+/* Tablets and below */
+@media (max-width: 768px) {
+  .form-wrapper {
+    padding: 20px;
+  }
+  .logo {
+    font-size: 24px;
+  }
+  .card-title {
+    font-size: 20px;
+  }
+  .form-row {
+    flex-direction: column; /* stack first and last name */
+    gap: 0;
+  }
+}
+
+/* Mobile screens */
+@media (max-width: 480px) {
+  body {
+    padding: 10px;
+  }
+  .form-wrapper {
+    padding: 16px;
+    border-radius: 12px;
+  }
+  .logo {
+    font-size: 22px;
+  }
+  .card-title {
+    font-size: 18px;
+  }
+  .form-input {
+    padding: 10px;
+    font-size: 13px;
+  }
+  .btn {
+    padding: 10px;
+    font-size: 14px;
+  }
+}
+/* ===============================
+   🔥 ACTUAL FIX (HTML-MATCHED)
+   =============================== */
+
+/* Force labels to full width */
+.form-group label {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Force ALL inputs same size like login */
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="password"],
+.form-group input[type="number"] {
+  display: block;
+  width: 100%;
+  height: 46px;               /* SAME as login */
+  padding: 12px 14px;
+  font-size: 14px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+/* Fix checkbox & radio only */
+.form-group input[type="checkbox"],
+.form-group input[type="radio"] {
+  width: auto;
+  height: auto;
+}
+
+/* Prevent inline squeeze */
+.form-group {
+  align-items: stretch;
+}

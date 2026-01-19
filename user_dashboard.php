@@ -7,6 +7,91 @@ if (!isset($_SESSION['user_id']) || $_SESSION['loginType'] !== 'users') {
     header("Location: login.php");
     exit();
 }
+// =========================
+// EDIT REVIEW (AJAX)
+// =========================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_review'])) {
+
+    $review_id = (int)$_POST['review_id'];
+    $rating = (int)$_POST['rating'];
+    $review_text = trim($_POST['review_text']);
+    $user_id = $_SESSION['user_id'];
+
+    $stmt = $conn->prepare(
+        "UPDATE reviews 
+         SET rating=?, review_text=? 
+         WHERE review_id=? AND user_id=?"
+    );
+    $stmt->bind_param("isii", $rating, $review_text, $review_id, $user_id);
+
+    echo json_encode(['success' => $stmt->execute()]);
+    $stmt->close();
+    exit;
+}
+
+// =========================
+// DELETE REVIEW
+// =========================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_review'])) {
+
+    $review_id = (int)$_POST['review_id'];
+    $user_id = $_SESSION['user_id'];
+
+    $stmt = $conn->prepare("DELETE FROM reviews WHERE review_id=? AND user_id=?");
+    $stmt->bind_param("ii", $review_id, $user_id);
+    $stmt->execute();
+    $stmt->close();
+
+    header("Location: " . $_SERVER['REQUEST_URI']);
+    exit;
+}
+
+$user_id = $_SESSION['user_id'];
+// Handle new review submission
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST'
+    && isset($_POST['booking_id'], $_POST['rating'], $_POST['review_text'])
+    && !isset($_POST['edit_review'])
+) {
+    $booking_id = (int)$_POST['booking_id'];
+    $rating = (int)$_POST['rating'];
+    $review_text = $conn->real_escape_string($_POST['review_text']);
+
+    $stmt = $conn->prepare("SELECT vendor_id, service_id, status FROM bookings WHERE booking_id=? AND user_id=?");
+    $stmt->bind_param("ii", $booking_id, $user_id);
+    $stmt->execute();
+    $booking = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if(!$booking || strtolower($booking['status']) !== 'completed') {
+        $msg = "⚠ Invalid booking or not completed";
+    } else {
+        $vendor_id = $booking['vendor_id'];
+        $service_id = $booking['service_id'];
+
+        // Check existing review
+        $stmt = $conn->prepare("SELECT review_id FROM reviews WHERE booking_id=? AND user_id=?");
+        $stmt->bind_param("ii", $booking_id, $user_id);
+        $stmt->execute();
+        $existing = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if($existing){
+            $stmt = $conn->prepare("UPDATE reviews SET rating=?, review_text=? WHERE review_id=? AND user_id=?");
+            $stmt->bind_param("isii", $rating, $review_text, $existing['review_id'], $user_id);
+            $stmt->execute();
+            $stmt->close();
+            $msg = "✅ Review updated successfully!";
+        } else {
+            $stmt = $conn->prepare("INSERT INTO reviews (booking_id, service_id, user_id, vendor_id, rating, review_text, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+            $stmt->bind_param("iiiiss", $booking_id, $service_id, $user_id, $vendor_id, $rating, $review_text);
+            $stmt->execute();
+            $stmt->close();
+            $msg = "✅ Review submitted successfully!";
+        }
+    }
+}
+
 
 $user_id = $_SESSION['user_id'];
 $active_page = $active_page ?? 'dashboard';
@@ -81,6 +166,19 @@ WHERE r.user_id = $user_id
 GROUP BY r.booking_id
 ORDER BY r.created_at DESC
 
+")->fetch_all(MYSQLI_ASSOC);
+// Fetch completed bookings without review
+$completed_no_review = $conn->query("
+    SELECT b.booking_id, b.booking_date, b.booking_time,
+           s.category AS service_name, v.name AS vendor_name, v.vendor_id
+    FROM bookings b
+    JOIN services s ON b.service_id = s.service_id
+    JOIN vendors v ON b.vendor_id = v.vendor_id
+    LEFT JOIN reviews r ON r.booking_id = b.booking_id
+    WHERE b.user_id = $user_id
+      AND b.status = 'completed'
+      AND r.review_id IS NULL
+    ORDER BY b.booking_date DESC, b.booking_time DESC
 ")->fetch_all(MYSQLI_ASSOC);
 
 
@@ -327,62 +425,6 @@ ORDER BY b.booking_date DESC, b.booking_time DESC
 
 
 
-// Handle review submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_review'])) {
-    $booking_id = intval($_POST['booking_id']);
-    $vendor_id = intval($_POST['vendor_id']);
-    $service_id = intval($_POST['service_id']);
-    $rating = intval($_POST['rating']);
-    $review_text = $conn->real_escape_string($_POST['review_text']);
-
-    // Check if booking belongs to this user and is completed
-    $check = $conn->prepare("SELECT * FROM bookings WHERE booking_id=? AND user_id=? AND status='completed'");
-    $check->bind_param("ii", $booking_id, $user_id);
-    $check->execute();
-    $res = $check->get_result();
-
-    if ($res->num_rows > 0) {
-        // Insert review
-        $insert = $conn->prepare("INSERT INTO reviews (booking_id, user_id, vendor_id, service_id, rating, review_text) 
-                                  VALUES (?, ?, ?, ?, ?, ?)");
-        $insert->bind_param("iiiiis", $booking_id, $user_id, $vendor_id, $service_id, $rating, $review_text);
-
-        if ($insert->execute()) {
-            $msg = "<p class='success-msg'>✅ Review submitted successfully!</p>";
-            $active_page = "reviews";
-        } else {
-            $msg = "<p class='error-msg'>❌ Failed to submit review.</p>";
-        }
-        $insert->close();
-    } else {
-        $msg = "<p class='error-msg'>⚠ You can only review completed bookings.</p>";
-    }
-
-    $check->close();
-    
-}
-// Handle AJAX review edit
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_review'])) {
-    $review_id = (int)$_POST['review_id'];
-    $rating = (int)$_POST['rating'];
-    $review_text = $conn->real_escape_string($_POST['review_text']);
-
-    $stmt = $conn->prepare(
-        "UPDATE reviews 
-         SET rating=?, review_text=? 
-         WHERE review_id=? AND user_id=?"
-    );
-    $stmt->bind_param("isii", $rating, $review_text, $review_id, $user_id);
-
-    if($stmt->execute()){
-        echo json_encode(['success' => true]);
-    } else {
-        echo json_encode(['success' => false]);
-    }
-    $stmt->close();
-    exit; // stop page output for AJAX
-}
-
 
 // Handle review delete
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_review'])) {
@@ -427,19 +469,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_review'])) {
                 <button class="nav-item <?= isset($active_page) && $active_page==='book-service' ? 'active' : '' ?>"
                     data-page="book-service">📋 Book Service</button>
                 <button class="nav-item <?= isset($active_page) && $active_page==='bookings' ? 'active' : '' ?>"
-        data-page="bookings">
-    📖 My Bookings
-</button>
+                    data-page="bookings">
+                    📖 My Bookings
+                </button>
 
                 <button class="nav-item <?= isset($active_page) && $active_page==='reviews' ? 'active' : '' ?>"
-        data-page="reviews">
-    ⭐ Reviews
-</button>
+                    data-page="reviews">
+                    ⭐ Reviews
+                </button>
 
                 <button class="nav-item <?= isset($active_page) && $active_page==='payments' ? 'active' : '' ?>"
-        data-page="payments">
-    💳 Payments
-</button>
+                    data-page="payments">
+                    💳 Payments
+                </button>
 
             </nav>
 
@@ -456,13 +498,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_review'])) {
 
                 <div class="header-profile">
                     <button type="button" class="profile-btn" data-page="profile">
-                      <div class="header-avatar">
-    <img src="<?= !empty($user['profile_photo']) 
+                        <div class="header-avatar">
+                            <img src="<?= !empty($user['profile_photo']) 
         ? htmlspecialchars($user['profile_photo']) 
-        : 'assets/default-avatar.png' ?>"
-        class="header-avatar-img"
-        alt="User">
-</div>
+        : 'assets/default-avatar.png' ?>" class="header-avatar-img" alt="User">
+                        </div>
 
                     </button>
                 </div>
@@ -556,12 +596,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_review'])) {
                             </div>
                             <div class="profile-top">
                                 <div class="avatar">
-    <img src="<?= !empty($user['profile_photo']) 
+                                    <img src="<?= !empty($user['profile_photo']) 
         ? htmlspecialchars($user['profile_photo']) 
-        : 'assets/default-avatar.png' ?>"
-        class="profile-avatar-img"
-        alt="Profile">
-</div>
+        : 'assets/default-avatar.png' ?>" class="profile-avatar-img" alt="Profile">
+                                </div>
 
                                 <div class="user-info">
                                     <h2><?= htmlspecialchars($user['first_name']." ".$user['last_name']) ?></h2>
@@ -772,74 +810,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_review'])) {
                     </div>
                 </div>
 
-<!-- My Bookings Page -->
-<div class="page <?= isset($active_page) && $active_page==='bookings' ? 'active' : '' ?>" id="bookings-page">
-    <h1 class="page-title">My Bookings</h1>
+                <!-- My Bookings Page -->
+                <div class="page <?= isset($active_page) && $active_page==='bookings' ? 'active' : '' ?>"
+                    id="bookings-page">
+                    <h1 class="page-title">My Bookings</h1>
 
-    <?php if (!empty($my_bookings)): ?>
-    <div class="bookings-grid">
-        <?php foreach ($my_bookings as $b): ?>
-            <?php
+                    <?php if (!empty($my_bookings)): ?>
+                    <div class="bookings-grid">
+                        <?php foreach ($my_bookings as $b): ?>
+                        <?php
                 // Normalize status
                 $status = strtolower(trim($b['status'] ?? ''));
                 $payment = strtolower(trim($b['payment_status'] ?? 'unpaid'));
                 $price = $b['price'] ?? 0;
             ?>
-            <div class="booking-card">
+                        <div class="booking-card">
 
-                <!-- Booking Header -->
-                <div class="booking-header">
-                    <h3><?= htmlspecialchars($b['category'] ?? 'Service') ?></h3>
-                    <span class="booking-status <?= $status ?>">
-                        <?= ucfirst($status) ?>
-                    </span>
-                </div>
+                            <!-- Booking Header -->
+                            <div class="booking-header">
+                                <h3><?= htmlspecialchars($b['category'] ?? 'Service') ?></h3>
+                                <span class="booking-status <?= $status ?>">
+                                    <?= ucfirst($status) ?>
+                                </span>
+                            </div>
 
-                <!-- Booking Info -->
-                <div class="booking-info">
-                    <p><?= htmlspecialchars($b['description'] ?? '') ?></p>
-                    <p>
-                        Vendor: <?= htmlspecialchars($b['vendor_name'] ?? 'N/A') ?> 
-                        (<?= htmlspecialchars($b['location'] ?? 'N/A') ?>)<br>
-                        Date: <?= htmlspecialchars($b['booking_date']) ?> | Time: <?= htmlspecialchars($b['booking_time']) ?><br>
-                        <strong>Price: ₹<?= number_format($price, 2) ?></strong>
-                    </p>
-                </div>
+                            <!-- Booking Info -->
+                            <div class="booking-info">
+                                <p><?= htmlspecialchars($b['description'] ?? '') ?></p>
+                                <p>
+                                    Vendor: <?= htmlspecialchars($b['vendor_name'] ?? 'N/A') ?>
+                                    (<?= htmlspecialchars($b['location'] ?? 'N/A') ?>)<br>
+                                    Date: <?= htmlspecialchars($b['booking_date']) ?> | Time:
+                                    <?= htmlspecialchars($b['booking_time']) ?><br>
+                                    <strong>Price: ₹<?= number_format($price, 2) ?></strong>
+                                </p>
+                            </div>
 
-                <!-- Actions -->
-                <div class="booking-actions">
-
-                    <!-- Optional Payment Button -->
-<p style="color:red;font-size:12px;">
-DEBUG: PAYMENT FORM RENDERED FOR BOOKING <?= $b['booking_id'] ?>
-</p>
-          
-    <form action="esewa_payment.php" method="POST" style="display:block; width:100%; margin-bottom:10px;">
-
-        <input type="hidden" name="booking_id" value="<?= $b['booking_id'] ?>">
-        <input type="hidden" name="amount" value="<?= $price ?>">
-        <input type="hidden" name="vendor_id" value="<?= $b['vendor_id'] ?>">
-        <input type="hidden" name="service_id" value="<?= $b['service_id'] ?>">
-        <input type="hidden" name="pay_method" value="esewa">
-
-     
-           <button type="submit"
-        style="display:block;width:100%;background:#16a34a;color:#fff;
+                            <!-- Actions -->
+                            <div class="booking-actions">
+                                <?php if ($payment !== 'paid'): ?>
+                                <form action="start_esewa_payment.php" method="POST">
+                                    <input type="hidden" name="booking_id" value="<?= $b['booking_id'] ?>">
+                                    <button type="submit" style="width:100%;background:#16a34a;color:#fff;
                padding:12px;border:none;border-radius:6px;
                font-size:14px;cursor:pointer;">
-    💳 Pay via eSewa
-</button>
+                                        💳 Pay via eSewa
+                                    </button>
+                                </form>
+                                <?php else: ?>
+                                <span style="color:green;font-weight:bold;">✅ Paid</span>
+                                <?php endif; ?>
 
-    </form>
-
-  
-
-
-                    <!-- Review Form (show for all completed bookings, ignore payment) -->
-                    <?php if ($status === 'completed'): ?>
-           <div class="review-form" data-booking-id="<?= $b['booking_id'] ?>">
+                                <!-- Review Form (show for all completed bookings, ignore payment) -->
+                                <?php if ($status === 'completed'): ?>
+                                <form method="post" name="submit_review" class="review-form">
+    <input type="hidden" name="booking_id" value="<?= $b['booking_id'] ?>">
+    
     <label>Rating:</label>
-    <select name="rating" id="rating-<?= $b['booking_id'] ?>" required>
+    <select name="rating" required>
         <option value="">Select</option>
         <option value="5">⭐⭐⭐⭐⭐</option>
         <option value="4">⭐⭐⭐⭐</option>
@@ -848,22 +876,23 @@ DEBUG: PAYMENT FORM RENDERED FOR BOOKING <?= $b['booking_id'] ?>
         <option value="1">⭐</option>
     </select>
 
-    <textarea name="review_text" id="review-text-<?= $b['booking_id'] ?>" placeholder="Write your review..." required></textarea>
+    <textarea name="review_text" placeholder="Write your review..." required></textarea>
 
-    <button type="button" class="review-btn" data-booking-id="<?= $b['booking_id'] ?>">Submit Review</button>
+    <button type="submit">Submit Review</button>
+</form>
+
+
+
+                                <?php endif; ?>
+
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
                     </div>
-
-
+                    <?php else: ?>
+                    <p class="empty-state">No bookings found.</p>
                     <?php endif; ?>
-
                 </div>
-            </div>
-        <?php endforeach; ?>
-    </div>
-    <?php else: ?>
-        <p class="empty-state">No bookings found.</p>
-    <?php endif; ?>
-</div>
 
 
                 <!-- Payments Page -->
@@ -893,6 +922,49 @@ DEBUG: PAYMENT FORM RENDERED FOR BOOKING <?= $b['booking_id'] ?>
                 </div>
 
                 <!-- Reviews Page -->
+                 
+
+
+                 <!-- Add Review Section for Completed Bookings -->
+                  
+<?php if (!empty($completed_no_review)): ?>
+<div class="add-review-section">
+    <h2>Give a Review for Completed Services</h2>
+
+    <?php foreach ($completed_no_review as $c): ?>
+    <div class="review-card">
+        <div class="review-header">
+            <div class="review-info">
+                <h3><?= htmlspecialchars($c['vendor_name']) ?></h3>
+                <span class="service-badge"><?= htmlspecialchars($c['service_name']) ?></span>
+            </div>
+            <div class="review-date">
+                <?= htmlspecialchars($c['booking_date']) ?> <?= htmlspecialchars($c['booking_time']) ?>
+            </div>
+        </div>
+
+        <form method="post" class="review-form">
+            <input type="hidden" name="booking_id" value="<?= $c['booking_id'] ?>">
+
+            <label>Rating:</label>
+            <select name="rating" required>
+                <option value="">Select</option>
+                <option value="5">⭐⭐⭐⭐⭐</option>
+                <option value="4">⭐⭐⭐⭐</option>
+                <option value="3">⭐⭐⭐</option>
+                <option value="2">⭐⭐</option>
+                <option value="1">⭐</option>
+            </select>
+
+            <textarea name="review_text" placeholder="Write your review..." required></textarea>
+
+            <button type="submit" name="submit_review">Submit Review</button>
+        </form>
+    </div>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
+
                 <div class="page <?= isset($active_page) && $active_page==='reviews' ? 'active' : '' ?>"
                     id="reviews-page">
                     <h1 class="page-title">My Reviews</h1>
@@ -943,7 +1015,7 @@ DEBUG: PAYMENT FORM RENDERED FOR BOOKING <?= $b['booking_id'] ?>
                             <form method="post" onsubmit="return confirm('Delete this review?');">
                                 <input type="hidden" name="delete_review" value="1">
                                 <input type="hidden" name="review_id" value="<?= $r['review_id'] ?>">
-                                <button type="button" class="delete-btn">🗑 Delete</button>
+                                <button type="submit" class="delete-btn">🗑 Delete</button>
                             </form>
                         </div>
 
@@ -954,74 +1026,68 @@ DEBUG: PAYMENT FORM RENDERED FOR BOOKING <?= $b['booking_id'] ?>
                     <?php endif; ?>
                 </div>
 
-                <!-- Edit Review Modal -->
-                <div id="editReviewModal" class="modal">
-                    <div class="modal-content">
-                        <span class="close-btn" onclick="closeEditModal()">&times;</span>
-                        <h2>Edit Review</h2>
-                        <form method="post" action="submit_review.php">
-    <input type="hidden" name="booking_id" value="<?= $b['booking_id'] ?>">
-    <label>Rating:</label>
-    <select name="rating" required>
-        <option value="">Select</option>
-        <option value="5">⭐⭐⭐⭐⭐</option>
-        <option value="4">⭐⭐⭐⭐</option>
-        <option value="3">⭐⭐⭐</option>
-        <option value="2">⭐⭐</option>
-        <option value="1">⭐</option>
-    </select>
-
-    <textarea name="review_text" placeholder="Write your review..." required></textarea>
-    <button type="submit">Submit Review</button>
-</form>
-
-
                     </div>
                 </div>
 
                 <script src="js/user_dashboard.js"></script>
                 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+          <div id="editReviewModal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn" onclick="closeEditModal()">&times;</span>
+
+        <h2>Edit Review</h2>
+
+        <input type="hidden" id="edit_review_id">
+
+        <label>Rating</label>
+        <select id="edit_rating">
+            <option value="5">⭐⭐⭐⭐⭐</option>
+            <option value="4">⭐⭐⭐⭐</option>
+            <option value="3">⭐⭐⭐</option>
+            <option value="2">⭐⭐</option>
+            <option value="1">⭐</option>
+        </select>
+
+        <textarea id="edit_review_text"></textarea>
+
+        <button onclick="saveEditReview()">💾 Save</button>
+    </div>
+</div>
+     
+</body>
 <script>
-    // ✅ REVIEW SUBMIT
-document.addEventListener('click', function(e) {
-    const btn = e.target.closest('.review-btn');
-    if (!btn) return;
+function openEditModal(id, rating, text) {
+    document.getElementById('edit_review_id').value = id;
+    document.getElementById('edit_rating').value = rating;
+    document.getElementById('edit_review_text').value = text;
 
-    const bookingId = btn.dataset.bookingId;
-    const ratingEl = document.getElementById(`rating-${bookingId}`);
-    const reviewEl = document.getElementById(`review-text-${bookingId}`);
+    document.getElementById('editReviewModal').style.display = 'block';
+}
 
-    if (!ratingEl || !reviewEl) return;
+function closeEditModal() {
+    document.getElementById('editReviewModal').style.display = 'none';
+}
 
-    const rating = parseInt(ratingEl.value);
-    const review = reviewEl.value.trim();
+function saveEditReview() {
+    const review_id = document.getElementById('edit_review_id').value;
+    const rating = document.getElementById('edit_rating').value;
+    const review_text = document.getElementById('edit_review_text').value;
 
-    if (!rating || rating < 1 || rating > 5 || review === '') {
-        alert('⚠ Please provide rating and review text');
-        return;
-    }
-
-    fetch('submit_review.php', {
+    fetch('', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({booking_id: bookingId, rating, review}),
-        credentials: 'same-origin' // ✅ IMPORTANT: sends session cookie
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: `edit_review=1&review_id=${review_id}&rating=${rating}&review_text=${encodeURIComponent(review_text)}`
     })
     .then(res => res.json())
     .then(data => {
         if (data.success) {
-            ratingEl.disabled = true;
-            reviewEl.disabled = true;
-            btn.disabled = true;
-            btn.innerText = '✅ Review Submitted';
+            alert('Review updated');
+            location.reload();
         } else {
-            alert('Failed: ' + data.message);
+            alert('Failed to update review');
         }
-    })
-    .catch(err => console.error('Fetch error:', err));
-});
-
+    });
+}
 </script>
-</body>
 
 </html>
